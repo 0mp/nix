@@ -45,7 +45,7 @@ R && checkAws(const FormatOrString & fs, Aws::Utils::Outcome<R, E> && outcome)
     if (!outcome.IsSuccess())
         throw S3Error(
             outcome.GetError().GetErrorType(),
-            fs.s + ": " + outcome.GetError().GetMessage());
+            fs.s + ": " + outcome.GetError().GetMessage().c_str());
     return outcome.GetResultWithOwnership();
 }
 
@@ -55,8 +55,10 @@ class AwsLogger : public Aws::Utils::Logging::FormattedLogSystem
 
     void ProcessFormattedStatement(Aws::String && statement) override
     {
-        debug("AWS: %s", chomp(statement));
+        debug("AWS: %s", chomp((const std::string &)statement));
     }
+
+    void Flush() override {}
 };
 
 static void initAWS()
@@ -142,8 +144,8 @@ S3Helper::FileTransferResult S3Helper::getObject(
 
     auto request =
         Aws::S3::Model::GetObjectRequest()
-        .WithBucket(bucketName)
-        .WithKey(key);
+        .WithBucket(bucketName.c_str())
+        .WithKey(key.c_str());
 
     request.SetResponseStreamFactory([&]() {
         return Aws::New<std::stringstream>("STRINGSTREAM");
@@ -158,7 +160,7 @@ S3Helper::FileTransferResult S3Helper::getObject(
         auto result = checkAws(fmt("AWS error fetching '%s'", key),
             client->GetObject(request));
 
-        res.data = decompress(result.GetContentEncoding(),
+        res.data = decompress(result.GetContentEncoding().c_str(),
             dynamic_cast<std::stringstream &>(result.GetBody()).str());
 
     } catch (S3Error & e) {
@@ -251,8 +253,8 @@ struct S3BinaryCacheStoreImpl : public S3BinaryCacheStore, virtual S3BinaryCache
 
         auto res = s3Helper.client->HeadObject(
             Aws::S3::Model::HeadObjectRequest()
-            .WithBucket(bucketName)
-            .WithKey(path));
+            .WithBucket(bucketName.c_str())
+            .WithKey(path.c_str()));
 
         if (!res.IsSuccess()) {
             auto & error = res.GetError();
@@ -318,7 +320,7 @@ struct S3BinaryCacheStoreImpl : public S3BinaryCacheStore, virtual S3BinaryCache
 
             std::shared_ptr<TransferHandle> transferHandle =
                 transferManager->UploadFile(
-                    istream, bucketName, path, mimeType,
+                    istream, bucketName.c_str(), path.c_str(), mimeType.c_str(),
                     Aws::Map<Aws::String, Aws::String>(),
                     nullptr /*, contentEncoding */);
 
@@ -336,13 +338,13 @@ struct S3BinaryCacheStoreImpl : public S3BinaryCacheStore, virtual S3BinaryCache
 
             auto request =
                 Aws::S3::Model::PutObjectRequest()
-                .WithBucket(bucketName)
-                .WithKey(path);
+                .WithBucket(bucketName.c_str())
+                .WithKey(path.c_str());
 
-            request.SetContentType(mimeType);
+            request.SetContentType(mimeType.c_str());
 
             if (contentEncoding != "")
-                request.SetContentEncoding(contentEncoding);
+                request.SetContentEncoding(contentEncoding.c_str());
 
             request.SetBody(istream);
 
@@ -414,9 +416,9 @@ struct S3BinaryCacheStoreImpl : public S3BinaryCacheStore, virtual S3BinaryCache
             auto res = checkAws(format("AWS error listing bucket '%s'") % bucketName,
                 s3Helper.client->ListObjects(
                     Aws::S3::Model::ListObjectsRequest()
-                    .WithBucket(bucketName)
+                    .WithBucket(bucketName.c_str())
                     .WithDelimiter("/")
-                    .WithMarker(marker)));
+                    .WithMarker(marker.c_str())));
 
             auto & contents = res.GetContents();
 
@@ -425,8 +427,8 @@ struct S3BinaryCacheStoreImpl : public S3BinaryCacheStore, virtual S3BinaryCache
 
             for (auto object : contents) {
                 auto & key = object.GetKey();
-                if (key.size() != 40 || !hasSuffix(key, ".narinfo")) continue;
-                paths.insert(parseStorePath(storeDir + "/" + key.substr(0, key.size() - 8) + "-" + MissingName));
+                if (key.size() != 40 || !hasSuffix(key.c_str(), ".narinfo")) continue;
+                paths.insert(parseStorePath(storeDir + "/" + key.substr(0, key.size() - 8).c_str() + "-" + MissingName));
             }
 
             marker = res.GetNextMarker();
